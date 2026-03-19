@@ -218,7 +218,23 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
         const clean = text.replace(/^```[a-z]*\n?/gm, "").replace(/```$/gm, "").trim();
         const match = clean.match(/\{[\s\S]*\}/);
         if (!match) throw new Error("No JSON object found in response");
-        parsed = JSON.parse(match[0]);
+        // Fix smart quotes which break JSON parsing
+        const fixed = match[0]
+          .replace(/\u2018|\u2019/g, "\u0027")
+          .replace(/\u201C|\u201D/g, "\u0022");
+        try {
+          parsed = JSON.parse(fixed);
+        } catch(e2) {
+          // Last resort: extract content manually with regex
+          const titleM = text.match(/"title"\s*:\s*"([^"]+)"/);
+          const paraMs = [...text.matchAll(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
+          const imageMs = [...text.matchAll(/"image"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
+          if (paraMs.length === 0) throw new Error("Could not extract story content");
+          parsed = {
+            title: titleM ? titleM[1] : "A Magical Adventure",
+            paragraphs: paraMs.map((t, i) => ({ text: t, image: imageMs[i] || "" }))
+          };
+        }
       } catch (e) {
         throw new Error("Could not parse story response: " + e.message);
       }
