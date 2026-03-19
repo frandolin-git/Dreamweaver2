@@ -39,25 +39,24 @@ const moods = [
 ];
 
 const illustrationStyles = [
-  { id: "watercolor", label: "🎨 Watercolor", prompt: "soft watercolor children's book illustration, gentle pastel colors, dreamy" },
-  { id: "cartoon", label: "🖍️ Cartoon", prompt: "cute cartoon children's book illustration, bright colors, bold outlines, fun" },
-  { id: "storybook", label: "📚 Storybook", prompt: "classic children's storybook illustration, warm colors, detailed, whimsical" },
-  { id: "dreamy", label: "✨ Dreamy", prompt: "magical dreamy children's book illustration, glowing light, ethereal, enchanted" },
+  { id: "watercolor", label: "🎨 Watercolor", prompt: "soft watercolor children's book illustration, pastel colors, dreamy, painterly" },
+  { id: "cartoon", label: "🖍️ Cartoon", prompt: "cute cartoon children's book illustration, bright bold colors, fun, expressive" },
+  { id: "storybook", label: "📚 Storybook", prompt: "classic children's storybook illustration, warm rich colors, whimsical, detailed" },
+  { id: "dreamy", label: "✨ Dreamy", prompt: "magical dreamy children's book illustration, glowing soft light, ethereal, enchanted" },
 ];
 
-// This component fetches the image from our serverless proxy
-function IllustrationImage({ prompt, stylePrompt }) {
+function IllustrationImage({ scenePrompt, characterPrompt, stylePrompt }) {
   const [src, setSrc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const fetchedRef = useRef(false);
 
   useEffect(() => {
-    // Only fetch once
     if (fetchedRef.current) return;
     fetchedRef.current = true;
 
-    const fullPrompt = `${prompt}, ${stylePrompt}, children's book art, safe for children, no text`;
+    // Scene takes priority — character is a brief anchor at the end
+    const fullPrompt = `${scenePrompt}, ${stylePrompt}, children's book art, no text. Character: ${characterPrompt}`;
 
     fetch("/api/image", {
       method: "POST",
@@ -73,7 +72,7 @@ function IllustrationImage({ prompt, stylePrompt }) {
         setLoading(false);
       })
       .catch(err => {
-        setError(err.message);
+        setError(err.message.slice(0, 80));
         setLoading(false);
       });
   }, []);
@@ -89,17 +88,13 @@ function IllustrationImage({ prompt, stylePrompt }) {
   if (error) {
     return (
       <div style={{ width: "100%", borderRadius: 14, marginBottom: 12, background: "rgba(255,0,0,0.05)", padding: "8px 12px", color: "#fb7185", fontSize: 11 }}>
-        ⚠️ {error.slice(0, 100)}
+        ⚠️ {error}
       </div>
     );
   }
 
   return (
-    <img
-      src={src}
-      alt="Story illustration"
-      style={{ width: "100%", display: "block", borderRadius: 14, marginBottom: 12 }}
-    />
+    <img src={src} alt="Story illustration" style={{ width: "100%", display: "block", borderRadius: 14, marginBottom: 12 }} />
   );
 }
 
@@ -115,12 +110,10 @@ export default function App() {
   const [mood, setMood] = useState("");
   const [sidekick, setSidekick] = useState("");
   const [illustrationStyle, setIllustrationStyle] = useState("");
-  const [photoBase64, setPhotoBase64] = useState("");
-  const [photoPreview, setPhotoPreview] = useState("");
-  const [photoDescription, setPhotoDescription] = useState("");
   const [storyTitle, setStoryTitle] = useState("");
   const [paragraphs, setParagraphs] = useState([]);
-  const [imagePrompts, setImagePrompts] = useState([]);
+  const [scenePrompts, setScenePrompts] = useState([]);
+  const [characterPrompt, setCharacterPrompt] = useState("");
   const [error, setError] = useState("");
   const [dots, setDots] = useState(1);
   const storyRef = useRef(null);
@@ -159,42 +152,14 @@ export default function App() {
     const moodLabel = moods.find(m => m.id === mood)?.label || mood;
     const sidekickLine = sidekick.trim() ? ` Their magical sidekick is a ${sidekick}.` : "";
 
-    // If photo uploaded, first get character description from it
-    let characterDesc = "";
-    if (photoBase64) {
-      try {
-        let descRes;
-        const descBody = {
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 100,
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: "image/jpeg", data: photoBase64 } },
-              { type: "text", text: "Describe this person's appearance in max 10 words focusing on hair color, eye color, and clothing. Be specific and concise. Example: 'brown curly hair, blue eyes, red striped shirt'" }
-            ]
-          }]
-        };
-        if (isVercelEnv) {
-          descRes = await fetch("/api/story", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(descBody) });
-        } else {
-          descRes = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify(descBody) });
-        }
-        const descData = await descRes.json();
-        characterDesc = descData.content?.map(c => c.text || "").join("") || "";
-        setPhotoDescription(characterDesc);
-      } catch (e) {
-        console.error("Photo description failed:", e);
-      }
-    }
-
     const prompt = `You are a children's bedtime story writer. Write a warm imaginative story for a child named ${childName} set in a ${themeLabel} world with a ${moodLabel} tone.${sidekickLine} The child is the hero. Write exactly 5 paragraphs, age-appropriate (4-8 years), with a gentle sleepy ending.
 
-${characterDesc ? `The main character looks like this: ${characterDesc}. Use this exact description in every image prompt.` : `First create a brief consistent character description for ${childName} (hair color, eye color, clothing - max 10 words).`}
-For each paragraph write a short image prompt (max 12 words) describing the scene. ALWAYS start each image prompt with the character description so the character looks consistent.
+Create a SHORT character description for ${childName}: hair color, eye color, one clothing item only (max 8 words total e.g. "brown hair, green eyes, red cape").
+
+For each paragraph write a vivid scene description (max 15 words) focusing on the SETTING and ACTION. Do not include the character description in scene prompts.
 
 Respond ONLY with valid JSON, no markdown, no backticks:
-{"title":"story title","character":"${characterDesc || 'brief character description max 10 words'}","paragraphs":[{"text":"paragraph text","image":"character description + scene description"},{"text":"...","image":"..."},{"text":"...","image":"..."},{"text":"...","image":"..."},{"text":"...","image":"..."}]}`;
+{"title":"story title","character":"hair color, eye color, clothing item","paragraphs":[{"text":"paragraph text","scene":"vivid setting and action description"},{"text":"...","scene":"..."},{"text":"...","scene":"..."},{"text":"...","scene":"..."},{"text":"...","scene":"..."}]}`;
 
     try {
       let res;
@@ -202,25 +167,13 @@ Respond ONLY with valid JSON, no markdown, no backticks:
         res = await fetch("/api/story", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 2000,
-            messages: [{ role: "user", content: prompt }],
-          }),
+          body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, messages: [{ role: "user", content: prompt }] }),
         });
       } else {
         res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 2000,
-            messages: [{ role: "user", content: prompt }],
-          }),
+          headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+          body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, messages: [{ role: "user", content: prompt }] }),
         });
       }
 
@@ -237,46 +190,32 @@ Respond ONLY with valid JSON, no markdown, no backticks:
       } catch (e) {
         const titleM = text.match(/"title"\s*:\s*"([^"]+)"/);
         const paraMs = [...text.matchAll(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
-        const imgMs = [...text.matchAll(/"image"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
+        const sceneMs = [...text.matchAll(/"scene"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
+        const charM = text.match(/"character"\s*:\s*"([^"]+)"/);
         if (paraMs.length === 0) throw new Error("Could not parse story");
         parsed = {
           title: titleM ? titleM[1] : "A Magical Adventure",
-          paragraphs: paraMs.map((t, i) => ({ text: t, image: imgMs[i] || "" }))
+          character: charM ? charM[1] : "young child with bright eyes",
+          paragraphs: paraMs.map((t, i) => ({ text: t, scene: sceneMs[i] || "" }))
         };
       }
 
       const clean = s => s ? s.replace(/\\'/g, "'").replace(/\\"/g, '"') : s;
       const title = clean(parsed.title) || `${childName}'s Magical Adventure`;
-      const character = clean(parsed.character) || `young child with bright eyes and colorful clothes`;
+      const character = clean(parsed.character) || "young child with bright curious eyes";
       const paras = (parsed.paragraphs || []).map(p => clean(p.text)).filter(Boolean);
-      // Prepend character description to every image prompt for consistency
-      const imgs = (parsed.paragraphs || []).map(p => {
-        const scene = clean(p.image) || "";
-        return `${character}, ${scene}`;
-      });
+      const scenes = (parsed.paragraphs || []).map(p => clean(p.scene) || "");
 
       setStoryTitle(title);
       setParagraphs(paras);
-      setImagePrompts(imgs);
+      setScenePrompts(scenes);
+      setCharacterPrompt(character);
       setPage(PAGE.STORY);
       setTimeout(() => storyRef.current?.scrollTo({ top: 0 }), 100);
     } catch (e) {
       setError(e.message || "Something went wrong. Try again!");
       setPage(PAGE.FORM);
     }
-  };
-
-  const handlePhotoUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const base64 = ev.target.result.split(",")[1];
-      setPhotoBase64(base64);
-      setPhotoPreview(ev.target.result);
-      setPhotoDescription(""); // reset previous description
-    };
-    reader.readAsDataURL(file);
   };
 
   const stylePrompt = illustrationStyles.find(s => s.id === illustrationStyle)?.prompt || "";
@@ -343,23 +282,6 @@ Respond ONLY with valid JSON, no markdown, no backticks:
             <p style={sectionLabel}>Magical sidekick <span style={{ opacity: 0.5, textTransform: "none", fontWeight: 400 }}>(optional)</span></p>
             <input style={inputStyle} placeholder="e.g. a tiny dragon, a talking fox..." value={sidekick} onChange={e => setSidekick(e.target.value)} />
 
-            <p style={sectionLabel}>Hero photo <span style={{ opacity: 0.5, textTransform: "none", fontWeight: 400 }}>(optional — makes illustrations look like them!)</span></p>
-            <label style={{ width: "100%", display: "block", cursor: "pointer", boxSizing: "border-box" }}>
-              <div style={{ ...inputStyle, display: "flex", alignItems: "center", gap: 12, cursor: "pointer", padding: "12px 18px" }}>
-                <span style={{ fontSize: 20 }}>📸</span>
-                <span style={{ color: photoPreview ? "#fde68a" : "rgba(253,230,138,0.4)", fontSize: 14 }}>
-                  {photoPreview ? "Photo uploaded ✓ tap to change" : "Upload a photo of the child..."}
-                </span>
-              </div>
-              <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: "none" }} />
-            </label>
-            {photoPreview && (
-              <div style={{ marginTop: 10, position: "relative", display: "inline-block", width: "100%" }}>
-                <img src={photoPreview} alt="Uploaded" style={{ width: "100%", maxHeight: 160, objectFit: "cover", borderRadius: 12, border: "1.5px solid rgba(253,186,116,0.3)" }} />
-                <button onClick={() => { setPhotoBase64(""); setPhotoPreview(""); setPhotoDescription(""); }} style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", border: "none", borderRadius: 50, width: 28, height: 28, color: "white", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
-              </div>
-            )}
-
             {error && <p style={{ color: "#fb7185", fontSize: 13, marginTop: 12, textAlign: "center" }}>{error}</p>}
 
             <div style={{ display: "flex", justifyContent: "center", marginTop: 32 }}>
@@ -389,8 +311,12 @@ Respond ONLY with valid JSON, no markdown, no backticks:
 
               {paragraphs.map((para, i) => (
                 <div key={i} style={{ marginBottom: 28 }}>
-                  {isVercelEnv && imagePrompts[i] && (
-                    <IllustrationImage prompt={imagePrompts[i]} stylePrompt={stylePrompt} />
+                  {isVercelEnv && scenePrompts[i] && (
+                    <IllustrationImage
+                      scenePrompt={scenePrompts[i]}
+                      characterPrompt={characterPrompt}
+                      stylePrompt={stylePrompt}
+                    />
                   )}
                   <p style={{ fontFamily: "'Lora', serif", fontSize: 16, lineHeight: 1.85, color: "rgba(253,230,138,0.85)", margin: 0 }}>{para}</p>
                 </div>
