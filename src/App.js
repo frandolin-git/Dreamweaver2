@@ -48,14 +48,20 @@ const illustrationStyles = [
 function getImageUrl(promptText, style) {
   const stylePrompt = illustrationStyles.find(s => s.id === style)?.prompt || "";
   const full = `${promptText}, ${stylePrompt}, children's book art, no text, no words, safe for children`;
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=512&height=320&nologo=true&safe=true&seed=${Math.floor(Math.random() * 99999)}`;
+  const seed = Math.floor(Math.random() * 99999);
+  // Use pollinations.ai with a direct URL format that works on Vercel
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=512&height=320&nologo=true&seed=${seed}`;
 }
 
 function IllustrationImage({ prompt, style }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
   const [errMsg, setErrMsg] = useState("");
-  const url = useRef(getImageUrl(prompt, style));
+  const stylePrompt = illustrationStyles.find(s => s.id === style)?.prompt || "";
+  const fullPrompt = `${prompt}, ${stylePrompt}, children's book art, no text, no words, safe for children`;
+  const directUrl = getImageUrl(prompt, style);
+  const proxyUrl = `/api/image?prompt=${encodeURIComponent(fullPrompt)}&seed=${Math.floor(Math.random() * 99999)}`;
+  const url = useRef(isVercelEnv ? proxyUrl : directUrl);
   return (
     <div style={{ width: "100%", borderRadius: 14, overflow: "hidden", marginBottom: 12, position: "relative", background: "rgba(255,255,255,0.04)", minHeight: error ? "auto" : 180 }}>
       {!loaded && !error && (
