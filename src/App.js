@@ -281,7 +281,7 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text.
       setPage(PAGE.STORY);
       setTimeout(() => storyRef.current?.scrollTo({ top: 0 }), 100);
     } catch (e) {
-      setError("Something went wrong conjuring your story. Try again!");
+      setError("Error: " + (e?.message || JSON.stringify(e) || "Unknown error"));
       setPage(PAGE.FORM);
     }
   };
