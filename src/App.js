@@ -118,6 +118,16 @@ export default function App() {
   const [dots, setDots] = useState(1);
   const storyRef = useRef(null);
 
+  // Voice state
+  const [voices, setVoices] = useState([]);
+  const [selectedVoice, setSelectedVoice] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const utteranceRef = useRef(null);
+  const queueRef = useRef([]);
+  const stoppedRef = useRef(true);
+  const pausedRef = useRef(false);
+
   useEffect(() => {
     const style = document.createElement("style");
     style.textContent = `
@@ -139,6 +149,97 @@ export default function App() {
     const iv = setInterval(() => setDots(d => (d % 3) + 1), 500);
     return () => clearInterval(iv);
   }, [page]);
+
+  // Load available voices - prioritise Google voices
+  useEffect(() => {
+    if (!window.speechSynthesis) return;
+    const loadVoices = () => {
+      const all = window.speechSynthesis.getVoices();
+      if (!all.length) return;
+      const english = all.filter(v => v.lang.startsWith("en"));
+      english.sort((a, b) => {
+        const aG = a.name.toLowerCase().includes("google");
+        const bG = b.name.toLowerCase().includes("google");
+        if (aG && !bG) return -1;
+        if (!aG && bG) return 1;
+        if (a.localService && !b.localService) return -1;
+        if (!a.localService && b.localService) return 1;
+        return 0;
+      });
+      setVoices(english);
+      const preferred = english.find(v => v.name.includes("Google UK English Female"))
+        || english.find(v => v.name.includes("Google") && v.name.toLowerCase().includes("female"))
+        || english.find(v => v.name.includes("Google"))
+        || english.find(v => v.localService)
+        || english[0];
+      if (preferred) setSelectedVoice(preferred);
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => { window.speechSynthesis.cancel(); };
+  }, []);
+
+  useEffect(() => { if (page !== PAGE.STORY) stopSpeech(); }, [page]);
+
+  const stopSpeech = () => {
+    stoppedRef.current = true;
+    pausedRef.current = false;
+    queueRef.current = [];
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    setIsPlaying(false);
+    setIsPaused(false);
+  };
+
+  const speakNext = () => {
+    if (stoppedRef.current || pausedRef.current || queueRef.current.length === 0) {
+      if (queueRef.current.length === 0 && !stoppedRef.current) {
+        stoppedRef.current = true;
+        setIsPlaying(false);
+        setIsPaused(false);
+      }
+      return;
+    }
+    const text = queueRef.current.shift();
+    const u = new SpeechSynthesisUtterance(text);
+    if (selectedVoice) u.voice = selectedVoice;
+    u.rate = 0.87;
+    u.pitch = 1.0;
+    u.volume = 1;
+    utteranceRef.current = u;
+    u.onend = () => { if (!stoppedRef.current && !pausedRef.current) speakNext(); };
+    u.onerror = (e) => { if (e.error !== "interrupted" && e.error !== "canceled" && !stoppedRef.current) speakNext(); };
+    window.speechSynthesis.speak(u);
+  };
+
+  const playStory = () => {
+    if (!window.speechSynthesis) return;
+    stopSpeech();
+    const fullText = `${storyTitle}. ${paragraphs.join(". ")}`;
+    const sentences = fullText.match(/[^.!?]+[.!?]+/g) || [fullText];
+    const chunks = [];
+    for (let i = 0; i < sentences.length; i += 2) {
+      chunks.push(sentences.slice(i, i + 2).join(" ").trim());
+    }
+    queueRef.current = chunks;
+    stoppedRef.current = false;
+    pausedRef.current = false;
+    setIsPlaying(true);
+    setIsPaused(false);
+    speakNext();
+  };
+
+  const togglePause = () => {
+    if (!window.speechSynthesis) return;
+    if (isPaused) {
+      pausedRef.current = false;
+      setIsPaused(false);
+      window.speechSynthesis.resume();
+    } else {
+      pausedRef.current = true;
+      setIsPaused(true);
+      window.speechSynthesis.pause();
+    }
+  };
 
   const generateStory = async () => {
     if (!childName.trim()) { setError("Please enter a name ✨"); return; }
@@ -302,6 +403,36 @@ Respond ONLY with valid JSON, no markdown, no backticks:
         {/* STORY */}
         {page === PAGE.STORY && (
           <div ref={storyRef} style={{ width: "100%" }}>
+            {/* Voice Controls */}
+            {window.speechSynthesis && (
+              <div style={{ background: "rgba(253,186,116,0.08)", border: "1px solid rgba(253,186,116,0.25)", borderRadius: 16, padding: "14px 18px", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                <p style={{ color: "#fde68a", fontWeight: 700, fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase", margin: 0, opacity: 0.7 }}>🔊 Read Aloud</p>
+                {voices.length > 0 && (
+                  <select
+                    value={selectedVoice?.name || ""}
+                    onChange={e => { const v = voices.find(x => x.name === e.target.value); setSelectedVoice(v); stopSpeech(); }}
+                    style={{ width: "100%", background: "rgba(255,255,255,0.06)", border: "1.5px solid rgba(253,186,116,0.3)", borderRadius: 10, padding: "8px 12px", color: "#fde68a", fontFamily: "'Quicksand', sans-serif", fontSize: 13, cursor: "pointer" }}
+                  >
+                    {voices.map(v => (
+                      <option key={v.name} value={v.name} style={{ background: "#12082e" }}>
+                        {v.name}{v.name.includes("Google") ? " ⭐" : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  {!isPlaying ? (
+                    <button onClick={playStory} style={{ background: "linear-gradient(135deg, #f59e0b, #fb923c)", border: "none", borderRadius: 50, padding: "11px 26px", color: "#1a0a3d", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>▶ Play Story</button>
+                  ) : (
+                    <>
+                      <button onClick={togglePause} style={{ background: "rgba(253,186,116,0.15)", border: "1.5px solid rgba(253,186,116,0.5)", borderRadius: 50, padding: "11px 22px", color: "#fde68a", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>{isPaused ? "▶ Resume" : "⏸ Pause"}</button>
+                      <button onClick={stopSpeech} style={{ background: "rgba(255,255,255,0.05)", border: "1.5px solid rgba(255,255,255,0.15)", borderRadius: 50, padding: "11px 22px", color: "rgba(253,230,138,0.6)", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>■ Stop</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(253,186,116,0.2)", borderRadius: 20, padding: "30px 26px", marginTop: 14 }}>
               <div style={{ textAlign: "center", marginBottom: 28 }}>
                 <div style={{ fontSize: 32, marginBottom: 8 }}>📖</div>
