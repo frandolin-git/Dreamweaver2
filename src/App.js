@@ -180,14 +180,17 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
 {"title":"story title here","paragraphs":[{"text":"paragraph 1 text","image":"short scene description max 15 words"},{"text":"paragraph 2 text","image":"scene description"},{"text":"paragraph 3 text","image":"scene description"},{"text":"paragraph 4 text","image":"scene description"},{"text":"paragraph 5 text","image":"scene description"}]}`;
 
     try {
+      const apiKey = typeof process !== "undefined" ? (process.env?.REACT_APP_ANTHROPIC_KEY || "") : "";
+      const reqHeaders = {
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      };
+      if (apiKey) reqHeaders["x-api-key"] = apiKey;
+
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": (typeof process !== "undefined" ? (process.env?.REACT_APP_ANTHROPIC_KEY || "") : ""),
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
+        headers: reqHeaders,
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1500,
