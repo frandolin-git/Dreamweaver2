@@ -221,6 +221,10 @@ export default function App() {
     if (!illustrationStyle) { setError("Pick an illustration style 🎨"); return; }
     setError("");
     stop();
+    if (!process.env.REACT_APP_ANTHROPIC_KEY) {
+      setError("Error: API key is missing. Check Vercel environment variables.");
+      return;
+    }
     setPage(PAGE.LOADING);
 
     const themeLabel = themes.find((t) => t.id === theme)?.label || theme;
