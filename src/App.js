@@ -166,20 +166,40 @@ export default function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text }),
         });
-        if (!res.ok) throw new Error("TTS failed");
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          console.error("ElevenLabs error:", errData);
+          if (!stoppedRef.current) playNextChunk();
+          return;
+        }
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
+        // Stop any existing audio first
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.src = "";
+        }
         const audio = new Audio(url);
         audioRef.current = audio;
         audio.onended = () => {
           URL.revokeObjectURL(url);
           if (!stoppedRef.current && !pausedRef.current) playNextChunk();
         };
-        audio.onerror = () => {
+        audio.onerror = (e) => {
+          console.error("Audio error:", e);
+          URL.revokeObjectURL(url);
           if (!stoppedRef.current) playNextChunk();
         };
-        await audio.play();
+        // Android requires explicit play call after user gesture
+        const playPromise = audio.play();
+        if (playPromise) {
+          playPromise.catch(e => {
+            console.error("Play failed:", e);
+            if (!stoppedRef.current) playNextChunk();
+          });
+        }
       } catch (e) {
+        console.error("Speak error:", e);
         if (!stoppedRef.current) playNextChunk();
       }
     } else {
@@ -291,8 +311,8 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
         const match = clean.match(/\{[\s\S]*\}/);
         if (!match) throw new Error("No JSON found");
         const fixed = match[0]
-          .replace(/\u2018|\u2019/g, "\u0027")
-          .replace(/\u201C|\u201D/g, "\u0022");
+          .replace(/\u2018|\u2019/g, "'")
+          .replace(/\u201C|\u201D/g, '\\"');
         try {
           parsed = JSON.parse(fixed);
         } catch (e2) {
@@ -309,8 +329,9 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
         throw new Error("Could not parse story: " + e.message);
       }
 
-      const title = parsed.title || `${childName}'s Magical Adventure`;
-      const paraMatches = (parsed.paragraphs || []).map(p => p.text).filter(Boolean);
+      const cleanText = (s) => s ? s.replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, "\\") : s;
+      const title = cleanText(parsed.title) || `${childName}'s Magical Adventure`;
+      const paraMatches = (parsed.paragraphs || []).map(p => cleanText(p.text)).filter(Boolean);
       const finalImagePrompts = (parsed.paragraphs || []).map((p, i) => {
         if (p.image) return p.image;
         const first = paraMatches[i]?.match(/[^.!?]+[.!?]/)?.[0] || paraMatches[i]?.slice(0, 80) || "";
