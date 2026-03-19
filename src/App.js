@@ -251,7 +251,7 @@ Make the story vivid, fun, and full of wonder!`;
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": "YOUR_KEY_HERE",
+          "x-api-key": "process.env.REACT_APP_ANTHROPIC_KEY",
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true",
         },
