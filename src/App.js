@@ -180,23 +180,33 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
 {"title":"story title here","paragraphs":[{"text":"paragraph 1 text","image":"short scene description max 15 words"},{"text":"paragraph 2 text","image":"scene description"},{"text":"paragraph 3 text","image":"scene description"},{"text":"paragraph 4 text","image":"scene description"},{"text":"paragraph 5 text","image":"scene description"}]}`;
 
     try {
-      const apiKey = typeof process !== "undefined" ? (process.env?.REACT_APP_ANTHROPIC_KEY || "") : "";
-      const reqHeaders = {
-        "Content-Type": "application/json",
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      };
-      if (apiKey) reqHeaders["x-api-key"] = apiKey;
-
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: reqHeaders,
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1500,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
+      const isVercel = typeof window !== "undefined" && window.location.hostname !== "localhost" && !window.location.hostname.includes("claude");
+      let res;
+      if (isVercel) {
+        res = await fetch("/api/story", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 1500,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+      } else {
+        res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 1500,
+            messages: [{ role: "user", content: prompt }],
+          }),
+        });
+      }
 
       const data = await res.json();
       const text = data.content?.map(c => c.text || "").join("") || "";
@@ -337,7 +347,6 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
                 <div style={{ fontSize: 32, marginBottom: 8 }}>📖</div>
                 <h2 style={{ fontFamily: "'Lora', serif", fontSize: "clamp(18px,5vw,24px)", fontWeight: 600, color: "#fde68a", margin: 0, fontStyle: "italic", lineHeight: 1.3 }}>{storyTitle}</h2>
                 <div style={{ height: 1, background: "rgba(253,186,116,0.2)", margin: "16px 0" }} />
-              {imagePrompts.length === 0 && <p style={{ color: "rgba(253,230,138,0.4)", fontSize: 12, textAlign: "center" }}>No image prompts found</p>}
               </div>
               {paragraphs.map((para, i) => (
                 <div key={i} style={{ marginBottom: 28 }}>
