@@ -198,7 +198,7 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
       const data = await res.json();
       const text = data.content?.map(c => c.text || "").join("") || "";
 
-      if (!text) throw new Error("Empty response from API. Check your API key in Vercel environment variables.");
+      if (!text) throw new Error("API error: " + JSON.stringify(data));
 
       let parsed;
       try {
