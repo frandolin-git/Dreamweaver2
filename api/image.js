@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch(
-      "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1",
+      "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0/text-to-image",
       {
         method: "POST",
         headers: {
@@ -27,9 +27,6 @@ export default async function handler(req, res) {
             height: 320,
             num_inference_steps: 20,
             guidance_scale: 7.5,
-          },
-          options: {
-            wait_for_model: true,
           },
         }),
       }
