@@ -47,54 +47,8 @@ const illustrationStyles = [
 
 function getImageUrl(promptText, style) {
   const stylePrompt = illustrationStyles.find(s => s.id === style)?.prompt || "";
-  const full = `${promptText}, ${stylePrompt}, children's book art, no text, no words`;
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=512&height=320&nologo=true&seed=${Math.floor(Math.random() * 99999)}`;
-}
-
-function useSpeaker() {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const queue = useRef([]);
-  const stopped = useRef(true);
-  const paused = useRef(false);
-
-  const speakNext = () => {
-    if (stopped.current || paused.current || queue.current.length === 0) {
-      if (queue.current.length === 0 && !stopped.current) { stopped.current = true; setIsPlaying(false); setIsPaused(false); }
-      return;
-    }
-    const text = queue.current.shift();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 0.88; u.pitch = 1.05; u.volume = 1;
-    u.onend = () => { if (!stopped.current) speakNext(); };
-    u.onerror = (e) => { if (e.error !== "interrupted" && e.error !== "canceled") speakNext(); };
-    window.speechSynthesis.speak(u);
-  };
-
-  const play = (text) => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-    queue.current = sentences.flatMap(s => s.length <= 150 ? [s.trim()] : s.split(/,\s+/).map(p => p.trim()).filter(Boolean));
-    stopped.current = false; paused.current = false;
-    setIsPlaying(true); setIsPaused(false);
-    speakNext();
-  };
-
-  const stop = () => {
-    if (!window.speechSynthesis) return;
-    stopped.current = true; paused.current = false; queue.current = [];
-    window.speechSynthesis.cancel();
-    setIsPlaying(false); setIsPaused(false);
-  };
-
-  const togglePause = () => {
-    if (!window.speechSynthesis) return;
-    if (isPaused) { paused.current = false; setIsPaused(false); window.speechSynthesis.resume(); speakNext(); }
-    else { paused.current = true; setIsPaused(true); window.speechSynthesis.pause(); }
-  };
-
-  return { isPlaying, isPaused, play, stop, togglePause };
+  const full = `${promptText}, ${stylePrompt}, children's book art, no text, no words, safe for children`;
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=512&height=320&nologo=true&safe=true&seed=${Math.floor(Math.random() * 99999)}`;
 }
 
 function IllustrationImage({ prompt, style }) {
@@ -102,21 +56,29 @@ function IllustrationImage({ prompt, style }) {
   const [error, setError] = useState(false);
   const url = useRef(getImageUrl(prompt, style));
   return (
-    <div style={{ width: "100%", borderRadius: 14, overflow: "hidden", marginBottom: 8, position: "relative", background: "rgba(255,255,255,0.04)", minHeight: error ? 0 : 180 }}>
+    <div style={{ width: "100%", borderRadius: 14, overflow: "hidden", marginBottom: 12, position: "relative", background: "rgba(255,255,255,0.04)", minHeight: error ? 0 : 180 }}>
       {!loaded && !error && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(253,230,138,0.4)", fontSize: 13, fontStyle: "italic", minHeight: 180 }}>
           🎨 Painting illustration...
         </div>
       )}
       {!error && (
-        <img src={url.current} alt="Story illustration"
-          onLoad={() => setLoaded(true)} onError={() => setError(true)}
-          style={{ width: "100%", display: "block", borderRadius: 14, opacity: loaded ? 1 : 0, transition: "opacity 0.5s ease" }}
+        <img
+          src={url.current}
+          alt="Story illustration"
+          onLoad={() => setLoaded(true)}
+          onError={() => setError(true)}
+          style={{ width: "100%", display: "block", borderRadius: 14, opacity: loaded ? 1 : 0, transition: "opacity 0.6s ease" }}
         />
       )}
     </div>
   );
 }
+
+const isVercelEnv = typeof window !== "undefined" &&
+  window.location.hostname !== "localhost" &&
+  !window.location.hostname.includes("claude") &&
+  !window.location.hostname.includes("stackblitz");
 
 export default function App() {
   const [page, setPage] = useState(PAGE.FORM);
@@ -132,7 +94,14 @@ export default function App() {
   const [error, setError] = useState("");
   const [dots, setDots] = useState(1);
   const storyRef = useRef(null);
-  const { isPlaying, isPaused, play, stop, togglePause } = useSpeaker();
+
+  // Voice state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const audioRef = useRef(null);
+  const queue = useRef([]);
+  const stoppedRef = useRef(true);
+  const pausedRef = useRef(false);
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -159,7 +128,112 @@ export default function App() {
     return () => clearInterval(iv);
   }, [page]);
 
-  useEffect(() => { if (page !== PAGE.STORY) stop(); }, [page]);
+  useEffect(() => {
+    if (page !== PAGE.STORY) stopAudio();
+  }, [page]);
+
+  // ── Voice functions ──────────────────────────────────────────
+
+  const stopAudio = () => {
+    stoppedRef.current = true;
+    pausedRef.current = false;
+    queue.current = [];
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+    }
+    setIsPlaying(false);
+    setIsPaused(false);
+  };
+
+  const playNextChunk = async () => {
+    if (stoppedRef.current || pausedRef.current || queue.current.length === 0) {
+      if (queue.current.length === 0 && !stoppedRef.current) {
+        stoppedRef.current = true;
+        setIsPlaying(false);
+        setIsPaused(false);
+      }
+      return;
+    }
+
+    const text = queue.current.shift();
+
+    if (isVercelEnv) {
+      // Use ElevenLabs via serverless function
+      try {
+        const res = await fetch("/api/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok) throw new Error("TTS failed");
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          if (!stoppedRef.current && !pausedRef.current) playNextChunk();
+        };
+        audio.onerror = () => {
+          if (!stoppedRef.current) playNextChunk();
+        };
+        await audio.play();
+      } catch (e) {
+        if (!stoppedRef.current) playNextChunk();
+      }
+    } else {
+      // Fallback to browser TTS in Claude
+      if (!window.speechSynthesis) return;
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 0.85; u.pitch = 0.9; u.volume = 1;
+      u.onend = () => { if (!stoppedRef.current && !pausedRef.current) playNextChunk(); };
+      u.onerror = () => { if (!stoppedRef.current) playNextChunk(); };
+      window.speechSynthesis.speak(u);
+    }
+  };
+
+  const playStory = async () => {
+    stopAudio();
+    const fullText = `${storyTitle}. ${story}`;
+    // Split into sentences for smooth streaming
+    const sentences = fullText.match(/[^.!?]+[.!?]+/g) || [fullText];
+    // Group into chunks of ~2 sentences for better flow
+    const chunks = [];
+    for (let i = 0; i < sentences.length; i += 2) {
+      chunks.push(sentences.slice(i, i + 2).join(" ").trim());
+    }
+    queue.current = chunks;
+    stoppedRef.current = false;
+    pausedRef.current = false;
+    setIsPlaying(true);
+    setIsPaused(false);
+    playNextChunk();
+  };
+
+  const togglePause = () => {
+    if (isPaused) {
+      pausedRef.current = false;
+      setIsPaused(false);
+      if (isVercelEnv) {
+        if (audioRef.current) audioRef.current.play();
+        else playNextChunk();
+      } else {
+        window.speechSynthesis?.resume();
+        playNextChunk();
+      }
+    } else {
+      pausedRef.current = true;
+      setIsPaused(true);
+      if (isVercelEnv) {
+        if (audioRef.current) audioRef.current.pause();
+      } else {
+        window.speechSynthesis?.pause();
+      }
+    }
+  };
+
+  // ── Story generation ─────────────────────────────────────────
 
   const generateStory = async () => {
     if (!childName.trim()) { setError("Please enter a name ✨"); return; }
@@ -167,7 +241,7 @@ export default function App() {
     if (!mood) { setError("Choose a story mood 💫"); return; }
     if (!illustrationStyle) { setError("Pick an illustration style 🎨"); return; }
     setError("");
-    stop();
+    stopAudio();
     setPage(PAGE.LOADING);
 
     const themeLabel = themes.find(t => t.id === theme)?.label || theme;
@@ -180,9 +254,8 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
 {"title":"story title here","paragraphs":[{"text":"paragraph 1 text","image":"short scene description max 15 words"},{"text":"paragraph 2 text","image":"scene description"},{"text":"paragraph 3 text","image":"scene description"},{"text":"paragraph 4 text","image":"scene description"},{"text":"paragraph 5 text","image":"scene description"}]}`;
 
     try {
-      const isVercel = typeof window !== "undefined" && window.location.hostname !== "localhost" && !window.location.hostname.includes("claude");
       let res;
-      if (isVercel) {
+      if (isVercelEnv) {
         res = await fetch("/api/story", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -210,33 +283,30 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
 
       const data = await res.json();
       const text = data.content?.map(c => c.text || "").join("") || "";
-
       if (!text) throw new Error("API error: " + JSON.stringify(data));
 
       let parsed;
       try {
         const clean = text.replace(/^```[a-z]*\n?/gm, "").replace(/```$/gm, "").trim();
         const match = clean.match(/\{[\s\S]*\}/);
-        if (!match) throw new Error("No JSON object found in response");
-        // Fix smart quotes which break JSON parsing
+        if (!match) throw new Error("No JSON found");
         const fixed = match[0]
           .replace(/\u2018|\u2019/g, "\u0027")
           .replace(/\u201C|\u201D/g, "\u0022");
         try {
           parsed = JSON.parse(fixed);
-        } catch(e2) {
-          // Last resort: extract content manually with regex
+        } catch (e2) {
           const titleM = text.match(/"title"\s*:\s*"([^"]+)"/);
           const paraMs = [...text.matchAll(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
           const imageMs = [...text.matchAll(/"image"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
-          if (paraMs.length === 0) throw new Error("Could not extract story content");
+          if (paraMs.length === 0) throw new Error("Could not extract story");
           parsed = {
             title: titleM ? titleM[1] : "A Magical Adventure",
             paragraphs: paraMs.map((t, i) => ({ text: t, image: imageMs[i] || "" }))
           };
         }
       } catch (e) {
-        throw new Error("Could not parse story response: " + e.message);
+        throw new Error("Could not parse story: " + e.message);
       }
 
       const title = parsed.title || `${childName}'s Magical Adventure`;
@@ -259,6 +329,8 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
     }
   };
 
+  // ── Styles ───────────────────────────────────────────────────
+
   const inputStyle = {
     width: "100%", background: "rgba(255,255,255,0.06)", border: "1.5px solid rgba(253,186,116,0.3)",
     borderRadius: 14, padding: "14px 18px", color: "#fde68a",
@@ -277,10 +349,12 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
     textTransform: "uppercase", marginBottom: 10, marginTop: 24, width: "100%", opacity: 0.7,
   };
 
+  // ── Render ───────────────────────────────────────────────────
+
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(170deg, #0a0520 0%, #12082e 40%, #1a0a3d 70%, #0d1535 100%)", fontFamily: "'Quicksand', sans-serif", position: "relative", overflow: "hidden" }}>
       <Stars />
-      <div style={{ position: "fixed", top: 32, right: 60, width: 80, height: 80, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, #fff8c2, #fde68a 60%, #f59e0b)", boxShadow: "0 0 40px 12px rgba(253,230,138,0.35), 0 0 80px 30px rgba(253,230,138,0.12)", zIndex: 0, pointerEvents: "none" }} />
+      <div style={{ position: "fixed", top: 32, right: 60, width: 80, height: 80, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, #fff8c2, #fde68a 60%, #f59e0b)", boxShadow: "0 0 40px 12px rgba(253,230,138,0.35)", zIndex: 0, pointerEvents: "none" }} />
 
       <div style={{ position: "relative", zIndex: 1, maxWidth: 560, margin: "0 auto", padding: "40px 24px 60px", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center" }}>
 
@@ -341,16 +415,17 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
         {/* STORY */}
         {page === PAGE.STORY && (
           <div ref={storyRef} style={{ width: "100%" }}>
+
             {/* Voice Controls */}
             <div style={{ background: "rgba(253,186,116,0.08)", border: "1px solid rgba(253,186,116,0.25)", borderRadius: 16, padding: "14px 18px", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
               <p style={{ color: "#fde68a", fontWeight: 700, fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase", margin: 0, opacity: 0.7 }}>🔊 Read Aloud</p>
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 {!isPlaying ? (
-                  <button onClick={() => play(`${storyTitle}. ${story}`)} style={{ background: "linear-gradient(135deg, #f59e0b, #fb923c)", border: "none", borderRadius: 50, padding: "11px 26px", color: "#1a0a3d", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>▶ Play Story</button>
+                  <button onClick={playStory} style={{ background: "linear-gradient(135deg, #f59e0b, #fb923c)", border: "none", borderRadius: 50, padding: "11px 26px", color: "#1a0a3d", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>▶ Play Story</button>
                 ) : (
                   <>
                     <button onClick={togglePause} style={{ background: "rgba(253,186,116,0.15)", border: "1.5px solid rgba(253,186,116,0.5)", borderRadius: 50, padding: "11px 22px", color: "#fde68a", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>{isPaused ? "▶ Resume" : "⏸ Pause"}</button>
-                    <button onClick={stop} style={{ background: "rgba(255,255,255,0.05)", border: "1.5px solid rgba(255,255,255,0.15)", borderRadius: 50, padding: "11px 22px", color: "rgba(253,230,138,0.6)", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>■ Stop</button>
+                    <button onClick={stopAudio} style={{ background: "rgba(255,255,255,0.05)", border: "1.5px solid rgba(255,255,255,0.15)", borderRadius: 50, padding: "11px 22px", color: "rgba(253,230,138,0.6)", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>■ Stop</button>
                     {!isPaused && <div style={{ display: "flex", alignItems: "center", gap: 3 }}>{["bar1","bar2","bar3","bar4","bar5"].map(cls => <div key={cls} className={cls} style={{ width: 3, height: 18, background: "#f59e0b", borderRadius: 2, opacity: 0.8 }} />)}</div>}
                   </>
                 )}
