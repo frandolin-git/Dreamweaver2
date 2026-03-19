@@ -59,9 +59,13 @@ function IllustrationImage({ prompt, style }) {
   const [errMsg, setErrMsg] = useState("");
   const stylePrompt = illustrationStyles.find(s => s.id === style)?.prompt || "";
   const fullPrompt = `${prompt}, ${stylePrompt}, children's book art, no text, no words, safe for children`;
-  const directUrl = getImageUrl(prompt, style);
-  const proxyUrl = `/api/image?prompt=${encodeURIComponent(fullPrompt)}&seed=${Math.floor(Math.random() * 99999)}`;
-  const url = useRef(isVercelEnv ? proxyUrl : directUrl);
+  const isVercel = typeof window !== "undefined" && !window.location.hostname.includes("claude") && !window.location.hostname.includes("localhost");
+  const seed = Math.floor(Math.random() * 99999);
+  const url = useRef(
+    isVercel
+      ? `/api/image?prompt=${encodeURIComponent(fullPrompt)}&seed=${seed}`
+      : `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=512&height=320&nologo=true&seed=${seed}`
+  );
   return (
     <div style={{ width: "100%", borderRadius: 14, overflow: "hidden", marginBottom: 12, position: "relative", background: "rgba(255,255,255,0.04)", minHeight: error ? "auto" : 180 }}>
       {!loaded && !error && (
