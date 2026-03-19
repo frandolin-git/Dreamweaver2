@@ -237,7 +237,7 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text.
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": "process.env.REACT_APP_ANTHROPIC_KEY",
+          "x-api-key": process.env.REACT_APP_ANTHROPIC_KEY,
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true",
         },
