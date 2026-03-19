@@ -13,13 +13,15 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseModalities: ["IMAGE"] },
+          generationConfig: {
+            responseModalities: ["IMAGE"],
+          },
         }),
       }
     );
@@ -30,10 +32,9 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-
-    // Extract base64 image from response
     const parts = data?.candidates?.[0]?.content?.parts || [];
     const imagePart = parts.find(p => p.inlineData);
+
     if (!imagePart) {
       return res.status(500).json({ error: "No image in response: " + JSON.stringify(data).slice(0, 200) });
     }
