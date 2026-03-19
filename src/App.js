@@ -54,12 +54,19 @@ function getImageUrl(promptText, style) {
 function IllustrationImage({ prompt, style }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
   const url = useRef(getImageUrl(prompt, style));
   return (
-    <div style={{ width: "100%", borderRadius: 14, overflow: "hidden", marginBottom: 12, position: "relative", background: "rgba(255,255,255,0.04)", minHeight: error ? 0 : 180 }}>
+    <div style={{ width: "100%", borderRadius: 14, overflow: "hidden", marginBottom: 12, position: "relative", background: "rgba(255,255,255,0.04)", minHeight: error ? "auto" : 180 }}>
       {!loaded && !error && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(253,230,138,0.4)", fontSize: 13, fontStyle: "italic", minHeight: 180 }}>
-          🎨 Painting illustration...
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "rgba(253,230,138,0.4)", fontSize: 13, fontStyle: "italic", minHeight: 180, gap: 4 }}>
+          <span>🎨 Painting illustration...</span>
+          <span style={{ fontSize: 10, wordBreak: "break-all", padding: "0 8px", opacity: 0.5 }}>{url.current.slice(0, 60)}...</span>
+        </div>
+      )}
+      {error && (
+        <div style={{ padding: "8px 12px", color: "#fb7185", fontSize: 11 }}>
+          ⚠️ Illustration failed to load
         </div>
       )}
       {!error && (
@@ -67,7 +74,7 @@ function IllustrationImage({ prompt, style }) {
           src={url.current}
           alt="Story illustration"
           onLoad={() => setLoaded(true)}
-          onError={() => setError(true)}
+          onError={(e) => { setError(true); setErrMsg(e.type); }}
           style={{ width: "100%", display: "block", borderRadius: 14, opacity: loaded ? 1 : 0, transition: "opacity 0.6s ease" }}
         />
       )}
@@ -92,6 +99,8 @@ export default function App() {
   const [paragraphs, setParagraphs] = useState([]);
   const [imagePrompts, setImagePrompts] = useState([]);
   const [error, setError] = useState("");
+  const [audioError, setAudioError] = useState("");
+  const [illustrationError, setIllustrationError] = useState("");
   const [dots, setDots] = useState(1);
   const storyRef = useRef(null);
 
@@ -168,7 +177,7 @@ export default function App() {
         });
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          console.error("ElevenLabs error:", errData);
+          setAudioError("Voice error: " + (errData.error || res.status));
           if (!stoppedRef.current) playNextChunk();
           return;
         }
@@ -199,7 +208,7 @@ export default function App() {
           });
         }
       } catch (e) {
-        console.error("Speak error:", e);
+        setAudioError("Voice error: " + e.message);
         if (!stoppedRef.current) playNextChunk();
       }
     } else {
@@ -215,6 +224,7 @@ export default function App() {
 
   const playStory = async () => {
     stopAudio();
+    setAudioError("");
     const fullText = `${storyTitle}. ${story}`;
     // Split into sentences for smooth streaming
     const sentences = fullText.match(/[^.!?]+[.!?]+/g) || [fullText];
@@ -440,6 +450,7 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
             {/* Voice Controls */}
             <div style={{ background: "rgba(253,186,116,0.08)", border: "1px solid rgba(253,186,116,0.25)", borderRadius: 16, padding: "14px 18px", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
               <p style={{ color: "#fde68a", fontWeight: 700, fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase", margin: 0, opacity: 0.7 }}>🔊 Read Aloud</p>
+              {audioError && <p style={{ color: "#fb7185", fontSize: 11, margin: 0 }}>{audioError}</p>}
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 {!isPlaying ? (
                   <button onClick={playStory} style={{ background: "linear-gradient(135deg, #f59e0b, #fb923c)", border: "none", borderRadius: 50, padding: "11px 26px", color: "#1a0a3d", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>▶ Play Story</button>
