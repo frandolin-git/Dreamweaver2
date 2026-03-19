@@ -39,62 +39,73 @@ const moods = [
 ];
 
 const illustrationStyles = [
-  { id: "watercolor", label: "🎨 Watercolor", prompt: "soft watercolor illustration, gentle pastel colors, dreamy watercolor painting style" },
-  { id: "cartoon", label: "🖍️ Cartoon", prompt: "cute cartoon illustration, bright vibrant colors, fun cartoon style, bold outlines" },
-  { id: "storybook", label: "📚 Storybook", prompt: "classic children's storybook illustration, warm colors, detailed storybook art style" },
-  { id: "dreamy", label: "✨ Dreamy", prompt: "magical dreamy illustration, glowing ethereal light, fantasy art, soft bokeh, enchanted" },
+  { id: "watercolor", label: "🎨 Watercolor", prompt: "soft watercolor children's book illustration, gentle pastel colors, dreamy" },
+  { id: "cartoon", label: "🖍️ Cartoon", prompt: "cute cartoon children's book illustration, bright colors, bold outlines, fun" },
+  { id: "storybook", label: "📚 Storybook", prompt: "classic children's storybook illustration, warm colors, detailed, whimsical" },
+  { id: "dreamy", label: "✨ Dreamy", prompt: "magical dreamy children's book illustration, glowing light, ethereal, enchanted" },
 ];
 
-function getImageUrl(promptText, style) {
-  const stylePrompt = illustrationStyles.find(s => s.id === style)?.prompt || "";
-  const full = `${promptText}, ${stylePrompt}, children's book art, no text, no words, safe for children`;
-  const seed = Math.floor(Math.random() * 99999);
-  // Use pollinations.ai with a direct URL format that works on Vercel
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=512&height=320&nologo=true&seed=${seed}`;
-}
+// This component fetches the image from our serverless proxy
+function IllustrationImage({ prompt, stylePrompt }) {
+  const [src, setSrc] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const fetchedRef = useRef(false);
 
-function IllustrationImage({ prompt, style }) {
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState(false);
-  const [errMsg, setErrMsg] = useState("");
-  const stylePrompt = illustrationStyles.find(s => s.id === style)?.prompt || "";
-  const fullPrompt = `${prompt}, ${stylePrompt}, children's book art, no text, no words, safe for children`;
-  const isVercel = typeof window !== "undefined" && !window.location.hostname.includes("claude") && !window.location.hostname.includes("localhost");
-  const seed = Math.floor(Math.random() * 99999);
-  const url = useRef(
-    isVercel
-      ? `/api/image?prompt=${encodeURIComponent(fullPrompt)}&seed=${seed}`
-      : `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=512&height=320&nologo=true&seed=${seed}`
-  );
+  useEffect(() => {
+    // Only fetch once
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    const fullPrompt = `${prompt}, ${stylePrompt}, children's book art, safe for children, no text`;
+
+    fetch("/api/image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: fullPrompt }),
+    })
+      .then(res => {
+        if (!res.ok) return res.text().then(t => { throw new Error(t); });
+        return res.blob();
+      })
+      .then(blob => {
+        setSrc(URL.createObjectURL(blob));
+        setLoading(false);
+      })
+      .catch(err => {
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ width: "100%", borderRadius: 14, marginBottom: 12, background: "rgba(255,255,255,0.04)", minHeight: 180, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(253,230,138,0.4)", fontSize: 13, fontStyle: "italic" }}>
+        🎨 Painting illustration...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ width: "100%", borderRadius: 14, marginBottom: 12, background: "rgba(255,0,0,0.05)", padding: "8px 12px", color: "#fb7185", fontSize: 11 }}>
+        ⚠️ {error.slice(0, 100)}
+      </div>
+    );
+  }
+
   return (
-    <div style={{ width: "100%", borderRadius: 14, overflow: "hidden", marginBottom: 12, position: "relative", background: "rgba(255,255,255,0.04)", minHeight: error ? "auto" : 180 }}>
-      {!loaded && !error && (
-        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "rgba(253,230,138,0.4)", fontSize: 13, fontStyle: "italic", minHeight: 180, gap: 4 }}>
-          <span>🎨 Painting illustration...</span>
-          <span style={{ fontSize: 10, wordBreak: "break-all", padding: "0 8px", opacity: 0.5 }}>{url.current.slice(0, 60)}...</span>
-        </div>
-      )}
-      {error && (
-        <div style={{ padding: "8px 12px", color: "#fb7185", fontSize: 11 }}>
-          ⚠️ Illustration failed to load
-        </div>
-      )}
-      {!error && (
-        <img
-          src={url.current}
-          alt="Story illustration"
-          onLoad={() => setLoaded(true)}
-          onError={(e) => { setError(true); setErrMsg(e.type); }}
-          style={{ width: "100%", display: "block", borderRadius: 14, opacity: loaded ? 1 : 0, transition: "opacity 0.6s ease" }}
-        />
-      )}
-    </div>
+    <img
+      src={src}
+      alt="Story illustration"
+      style={{ width: "100%", display: "block", borderRadius: 14, marginBottom: 12 }}
+    />
   );
 }
 
 const isVercelEnv = typeof window !== "undefined" &&
-  window.location.hostname !== "localhost" &&
   !window.location.hostname.includes("claude") &&
+  !window.location.hostname.includes("localhost") &&
   !window.location.hostname.includes("stackblitz");
 
 export default function App() {
@@ -104,23 +115,12 @@ export default function App() {
   const [mood, setMood] = useState("");
   const [sidekick, setSidekick] = useState("");
   const [illustrationStyle, setIllustrationStyle] = useState("");
-  const [story, setStory] = useState("");
   const [storyTitle, setStoryTitle] = useState("");
   const [paragraphs, setParagraphs] = useState([]);
   const [imagePrompts, setImagePrompts] = useState([]);
   const [error, setError] = useState("");
-  const [audioError, setAudioError] = useState("");
-  const [illustrationError, setIllustrationError] = useState("");
   const [dots, setDots] = useState(1);
   const storyRef = useRef(null);
-
-  // Voice state
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const audioRef = useRef(null);
-  const queue = useRef([]);
-  const stoppedRef = useRef(true);
-  const pausedRef = useRef(false);
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -131,11 +131,8 @@ export default function App() {
       @keyframes fadeSlideUp { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
       @keyframes shimmer { 0% { background-position:-200% center; } 100% { background-position:200% center; } }
       @keyframes pulse-glow { 0%,100% { box-shadow:0 0 20px rgba(253,186,116,0.3); } 50% { box-shadow:0 0 40px rgba(253,186,116,0.7); } }
-      @keyframes sound-wave { 0%,100% { transform:scaleY(0.4); } 50% { transform:scaleY(1); } }
       input::placeholder { color:rgba(253,230,138,0.4); } input:focus { outline:none; }
       ::-webkit-scrollbar { width:6px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:rgba(253,186,116,0.4); border-radius:3px; }
-      .bar1{animation:sound-wave 0.8s 0.0s ease-in-out infinite;} .bar2{animation:sound-wave 0.8s 0.15s ease-in-out infinite;}
-      .bar3{animation:sound-wave 0.8s 0.3s ease-in-out infinite;} .bar4{animation:sound-wave 0.8s 0.45s ease-in-out infinite;} .bar5{animation:sound-wave 0.8s 0.6s ease-in-out infinite;}
     `;
     document.head.appendChild(style);
     return () => document.head.removeChild(style);
@@ -147,141 +144,12 @@ export default function App() {
     return () => clearInterval(iv);
   }, [page]);
 
-  useEffect(() => {
-    if (page !== PAGE.STORY) stopAudio();
-  }, [page]);
-
-  // ── Voice functions ──────────────────────────────────────────
-
-  const stopAudio = () => {
-    stoppedRef.current = true;
-    pausedRef.current = false;
-    queue.current = [];
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = "";
-    }
-    setIsPlaying(false);
-    setIsPaused(false);
-  };
-
-  const playNextChunk = async () => {
-    if (stoppedRef.current || pausedRef.current || queue.current.length === 0) {
-      if (queue.current.length === 0 && !stoppedRef.current) {
-        stoppedRef.current = true;
-        setIsPlaying(false);
-        setIsPaused(false);
-      }
-      return;
-    }
-
-    const text = queue.current.shift();
-
-    if (isVercelEnv) {
-      // Use ElevenLabs via serverless function
-      try {
-        const res = await fetch("/api/speak", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          setAudioError("Voice error: " + (errData.error || res.status));
-          if (!stoppedRef.current) playNextChunk();
-          return;
-        }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        // Stop any existing audio first
-        if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current.src = "";
-        }
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        audio.onended = () => {
-          URL.revokeObjectURL(url);
-          if (!stoppedRef.current && !pausedRef.current) playNextChunk();
-        };
-        audio.onerror = (e) => {
-          console.error("Audio error:", e);
-          URL.revokeObjectURL(url);
-          if (!stoppedRef.current) playNextChunk();
-        };
-        // Android requires explicit play call after user gesture
-        const playPromise = audio.play();
-        if (playPromise) {
-          playPromise.catch(e => {
-            console.error("Play failed:", e);
-            if (!stoppedRef.current) playNextChunk();
-          });
-        }
-      } catch (e) {
-        setAudioError("Voice error: " + e.message);
-        if (!stoppedRef.current) playNextChunk();
-      }
-    } else {
-      // Fallback to browser TTS in Claude
-      if (!window.speechSynthesis) return;
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 0.85; u.pitch = 0.9; u.volume = 1;
-      u.onend = () => { if (!stoppedRef.current && !pausedRef.current) playNextChunk(); };
-      u.onerror = () => { if (!stoppedRef.current) playNextChunk(); };
-      window.speechSynthesis.speak(u);
-    }
-  };
-
-  const playStory = async () => {
-    stopAudio();
-    setAudioError("");
-    const fullText = `${storyTitle}. ${story}`;
-    // Split into sentences for smooth streaming
-    const sentences = fullText.match(/[^.!?]+[.!?]+/g) || [fullText];
-    // Group into chunks of ~2 sentences for better flow
-    const chunks = [];
-    for (let i = 0; i < sentences.length; i += 2) {
-      chunks.push(sentences.slice(i, i + 2).join(" ").trim());
-    }
-    queue.current = chunks;
-    stoppedRef.current = false;
-    pausedRef.current = false;
-    setIsPlaying(true);
-    setIsPaused(false);
-    playNextChunk();
-  };
-
-  const togglePause = () => {
-    if (isPaused) {
-      pausedRef.current = false;
-      setIsPaused(false);
-      if (isVercelEnv) {
-        if (audioRef.current) audioRef.current.play();
-        else playNextChunk();
-      } else {
-        window.speechSynthesis?.resume();
-        playNextChunk();
-      }
-    } else {
-      pausedRef.current = true;
-      setIsPaused(true);
-      if (isVercelEnv) {
-        if (audioRef.current) audioRef.current.pause();
-      } else {
-        window.speechSynthesis?.pause();
-      }
-    }
-  };
-
-  // ── Story generation ─────────────────────────────────────────
-
   const generateStory = async () => {
     if (!childName.trim()) { setError("Please enter a name ✨"); return; }
     if (!theme) { setError("Pick a world to explore! 🌍"); return; }
     if (!mood) { setError("Choose a story mood 💫"); return; }
     if (!illustrationStyle) { setError("Pick an illustration style 🎨"); return; }
     setError("");
-    stopAudio();
     setPage(PAGE.LOADING);
 
     const themeLabel = themes.find(t => t.id === theme)?.label || theme;
@@ -290,8 +158,10 @@ export default function App() {
 
     const prompt = `You are a children's bedtime story writer. Write a warm imaginative story for a child named ${childName} set in a ${themeLabel} world with a ${moodLabel} tone.${sidekickLine} The child is the hero. Write exactly 5 paragraphs, age-appropriate (4-8 years), with a gentle sleepy ending.
 
-Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
-{"title":"story title here","paragraphs":[{"text":"paragraph 1 text","image":"short scene description max 15 words"},{"text":"paragraph 2 text","image":"scene description"},{"text":"paragraph 3 text","image":"scene description"},{"text":"paragraph 4 text","image":"scene description"},{"text":"paragraph 5 text","image":"scene description"}]}`;
+For each paragraph write a short image prompt (max 12 words) describing the scene visually.
+
+Respond ONLY with valid JSON, no markdown, no backticks:
+{"title":"story title","paragraphs":[{"text":"paragraph text","image":"visual scene description"},{"text":"...","image":"..."},{"text":"...","image":"..."},{"text":"...","image":"..."},{"text":"...","image":"..."}]}`;
 
     try {
       let res;
@@ -301,7 +171,7 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
-            max_tokens: 1500,
+            max_tokens: 2000,
             messages: [{ role: "user", content: prompt }],
           }),
         });
@@ -315,7 +185,7 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
           },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
-            max_tokens: 1500,
+            max_tokens: 2000,
             messages: [{ role: "user", content: prompt }],
           }),
         });
@@ -330,38 +200,26 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
         const clean = text.replace(/^```[a-z]*\n?/gm, "").replace(/```$/gm, "").trim();
         const match = clean.match(/\{[\s\S]*\}/);
         if (!match) throw new Error("No JSON found");
-        const fixed = match[0]
-          .replace(/\u2018|\u2019/g, "'")
-          .replace(/\u201C|\u201D/g, '\\"');
-        try {
-          parsed = JSON.parse(fixed);
-        } catch (e2) {
-          const titleM = text.match(/"title"\s*:\s*"([^"]+)"/);
-          const paraMs = [...text.matchAll(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
-          const imageMs = [...text.matchAll(/"image"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
-          if (paraMs.length === 0) throw new Error("Could not extract story");
-          parsed = {
-            title: titleM ? titleM[1] : "A Magical Adventure",
-            paragraphs: paraMs.map((t, i) => ({ text: t, image: imageMs[i] || "" }))
-          };
-        }
+        parsed = JSON.parse(match[0]);
       } catch (e) {
-        throw new Error("Could not parse story: " + e.message);
+        const titleM = text.match(/"title"\s*:\s*"([^"]+)"/);
+        const paraMs = [...text.matchAll(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
+        const imgMs = [...text.matchAll(/"image"\s*:\s*"((?:[^"\\]|\\.)*)"/g)].map(m => m[1]);
+        if (paraMs.length === 0) throw new Error("Could not parse story");
+        parsed = {
+          title: titleM ? titleM[1] : "A Magical Adventure",
+          paragraphs: paraMs.map((t, i) => ({ text: t, image: imgMs[i] || "" }))
+        };
       }
 
-      const cleanText = (s) => s ? s.replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, "\\") : s;
-      const title = cleanText(parsed.title) || `${childName}'s Magical Adventure`;
-      const paraMatches = (parsed.paragraphs || []).map(p => cleanText(p.text)).filter(Boolean);
-      const finalImagePrompts = (parsed.paragraphs || []).map((p, i) => {
-        if (p.image) return p.image;
-        const first = paraMatches[i]?.match(/[^.!?]+[.!?]/)?.[0] || paraMatches[i]?.slice(0, 80) || "";
-        return `child in ${themeLabel}: ${first.trim()}`;
-      });
+      const clean = s => s ? s.replace(/\\'/g, "'").replace(/\\"/g, '"') : s;
+      const title = clean(parsed.title) || `${childName}'s Magical Adventure`;
+      const paras = (parsed.paragraphs || []).map(p => clean(p.text)).filter(Boolean);
+      const imgs = (parsed.paragraphs || []).map(p => clean(p.image) || "");
 
       setStoryTitle(title);
-      setStory(paraMatches.join("\n\n"));
-      setParagraphs(paraMatches);
-      setImagePrompts(finalImagePrompts);
+      setParagraphs(paras);
+      setImagePrompts(imgs);
       setPage(PAGE.STORY);
       setTimeout(() => storyRef.current?.scrollTo({ top: 0 }), 100);
     } catch (e) {
@@ -370,7 +228,7 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
     }
   };
 
-  // ── Styles ───────────────────────────────────────────────────
+  const stylePrompt = illustrationStyles.find(s => s.id === illustrationStyle)?.prompt || "";
 
   const inputStyle = {
     width: "100%", background: "rgba(255,255,255,0.06)", border: "1.5px solid rgba(253,186,116,0.3)",
@@ -389,8 +247,6 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
     color: "#fde68a", fontWeight: 700, fontSize: 13, letterSpacing: 1.5,
     textTransform: "uppercase", marginBottom: 10, marginTop: 24, width: "100%", opacity: 0.7,
   };
-
-  // ── Render ───────────────────────────────────────────────────
 
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(170deg, #0a0520 0%, #12082e 40%, #1a0a3d 70%, #0d1535 100%)", fontFamily: "'Quicksand', sans-serif", position: "relative", overflow: "hidden" }}>
@@ -456,34 +312,18 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text:
         {/* STORY */}
         {page === PAGE.STORY && (
           <div ref={storyRef} style={{ width: "100%" }}>
-
-            {/* Voice Controls */}
-            <div style={{ background: "rgba(253,186,116,0.08)", border: "1px solid rgba(253,186,116,0.25)", borderRadius: 16, padding: "14px 18px", marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              <p style={{ color: "#fde68a", fontWeight: 700, fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase", margin: 0, opacity: 0.7 }}>🔊 Read Aloud</p>
-              {audioError && <p style={{ color: "#fb7185", fontSize: 11, margin: 0 }}>{audioError}</p>}
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                {!isPlaying ? (
-                  <button onClick={playStory} style={{ background: "linear-gradient(135deg, #f59e0b, #fb923c)", border: "none", borderRadius: 50, padding: "11px 26px", color: "#1a0a3d", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>▶ Play Story</button>
-                ) : (
-                  <>
-                    <button onClick={togglePause} style={{ background: "rgba(253,186,116,0.15)", border: "1.5px solid rgba(253,186,116,0.5)", borderRadius: 50, padding: "11px 22px", color: "#fde68a", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>{isPaused ? "▶ Resume" : "⏸ Pause"}</button>
-                    <button onClick={stopAudio} style={{ background: "rgba(255,255,255,0.05)", border: "1.5px solid rgba(255,255,255,0.15)", borderRadius: 50, padding: "11px 22px", color: "rgba(253,230,138,0.6)", fontFamily: "'Quicksand', sans-serif", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>■ Stop</button>
-                    {!isPaused && <div style={{ display: "flex", alignItems: "center", gap: 3 }}>{["bar1","bar2","bar3","bar4","bar5"].map(cls => <div key={cls} className={cls} style={{ width: 3, height: 18, background: "#f59e0b", borderRadius: 2, opacity: 0.8 }} />)}</div>}
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Story Card */}
             <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(253,186,116,0.2)", borderRadius: 20, padding: "30px 26px", marginTop: 14 }}>
               <div style={{ textAlign: "center", marginBottom: 28 }}>
                 <div style={{ fontSize: 32, marginBottom: 8 }}>📖</div>
                 <h2 style={{ fontFamily: "'Lora', serif", fontSize: "clamp(18px,5vw,24px)", fontWeight: 600, color: "#fde68a", margin: 0, fontStyle: "italic", lineHeight: 1.3 }}>{storyTitle}</h2>
                 <div style={{ height: 1, background: "rgba(253,186,116,0.2)", margin: "16px 0" }} />
               </div>
+
               {paragraphs.map((para, i) => (
                 <div key={i} style={{ marginBottom: 28 }}>
-                  {imagePrompts[i] && <IllustrationImage prompt={imagePrompts[i]} style={illustrationStyle} />}
+                  {isVercelEnv && imagePrompts[i] && (
+                    <IllustrationImage prompt={imagePrompts[i]} stylePrompt={stylePrompt} />
+                  )}
                   <p style={{ fontFamily: "'Lora', serif", fontSize: 16, lineHeight: 1.85, color: "rgba(253,230,138,0.85)", margin: 0 }}>{para}</p>
                 </div>
               ))}
