@@ -253,17 +253,17 @@ Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text.
       // Parse JSON response
       let parsed;
       try {
-        // Strip any accidental markdown fences
-        const clean = text.replace(/```json|```/g, "").trim();
-        parsed = JSON.parse(clean);
+        // Aggressively strip markdown fences and whitespace
+        const clean = text
+          .replace(/^```[a-z]*\n?/gm, "")
+          .replace(/```$/gm, "")
+          .trim();
+        // Extract just the JSON object
+        const match = clean.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error("No JSON found");
+        parsed = JSON.parse(match[0]);
       } catch (e) {
-        // Fallback: extract JSON object from text
-        const match = text.match(/\{[\s\S]*\}/);
-        if (match) {
-          parsed = JSON.parse(match[0]);
-        } else {
-          throw new Error("Could not parse story");
-        }
+        throw new Error("Could not parse story: " + e.message + " | Raw: " + text.slice(0, 200));
       }
 
       const title = parsed.title || `${childName}'s Magical Adventure`;
