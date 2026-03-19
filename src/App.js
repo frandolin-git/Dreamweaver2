@@ -115,6 +115,9 @@ export default function App() {
   const [mood, setMood] = useState("");
   const [sidekick, setSidekick] = useState("");
   const [illustrationStyle, setIllustrationStyle] = useState("");
+  const [photoBase64, setPhotoBase64] = useState("");
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [photoDescription, setPhotoDescription] = useState("");
   const [storyTitle, setStoryTitle] = useState("");
   const [paragraphs, setParagraphs] = useState([]);
   const [imagePrompts, setImagePrompts] = useState([]);
@@ -156,12 +159,42 @@ export default function App() {
     const moodLabel = moods.find(m => m.id === mood)?.label || mood;
     const sidekickLine = sidekick.trim() ? ` Their magical sidekick is a ${sidekick}.` : "";
 
+    // If photo uploaded, first get character description from it
+    let characterDesc = "";
+    if (photoBase64) {
+      try {
+        let descRes;
+        const descBody = {
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 100,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: "image/jpeg", data: photoBase64 } },
+              { type: "text", text: "Describe this person's appearance in max 10 words focusing on hair color, eye color, and clothing. Be specific and concise. Example: 'brown curly hair, blue eyes, red striped shirt'" }
+            ]
+          }]
+        };
+        if (isVercelEnv) {
+          descRes = await fetch("/api/story", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(descBody) });
+        } else {
+          descRes = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify(descBody) });
+        }
+        const descData = await descRes.json();
+        characterDesc = descData.content?.map(c => c.text || "").join("") || "";
+        setPhotoDescription(characterDesc);
+      } catch (e) {
+        console.error("Photo description failed:", e);
+      }
+    }
+
     const prompt = `You are a children's bedtime story writer. Write a warm imaginative story for a child named ${childName} set in a ${themeLabel} world with a ${moodLabel} tone.${sidekickLine} The child is the hero. Write exactly 5 paragraphs, age-appropriate (4-8 years), with a gentle sleepy ending.
 
-For each paragraph write a short image prompt (max 12 words) describing the scene visually.
+${characterDesc ? `The main character looks like this: ${characterDesc}. Use this exact description in every image prompt.` : `First create a brief consistent character description for ${childName} (hair color, eye color, clothing - max 10 words).`}
+For each paragraph write a short image prompt (max 12 words) describing the scene. ALWAYS start each image prompt with the character description so the character looks consistent.
 
 Respond ONLY with valid JSON, no markdown, no backticks:
-{"title":"story title","paragraphs":[{"text":"paragraph text","image":"visual scene description"},{"text":"...","image":"..."},{"text":"...","image":"..."},{"text":"...","image":"..."},{"text":"...","image":"..."}]}`;
+{"title":"story title","character":"${characterDesc || 'brief character description max 10 words'}","paragraphs":[{"text":"paragraph text","image":"character description + scene description"},{"text":"...","image":"..."},{"text":"...","image":"..."},{"text":"...","image":"..."},{"text":"...","image":"..."}]}`;
 
     try {
       let res;
@@ -214,8 +247,13 @@ Respond ONLY with valid JSON, no markdown, no backticks:
 
       const clean = s => s ? s.replace(/\\'/g, "'").replace(/\\"/g, '"') : s;
       const title = clean(parsed.title) || `${childName}'s Magical Adventure`;
+      const character = clean(parsed.character) || `young child with bright eyes and colorful clothes`;
       const paras = (parsed.paragraphs || []).map(p => clean(p.text)).filter(Boolean);
-      const imgs = (parsed.paragraphs || []).map(p => clean(p.image) || "");
+      // Prepend character description to every image prompt for consistency
+      const imgs = (parsed.paragraphs || []).map(p => {
+        const scene = clean(p.image) || "";
+        return `${character}, ${scene}`;
+      });
 
       setStoryTitle(title);
       setParagraphs(paras);
@@ -226,6 +264,19 @@ Respond ONLY with valid JSON, no markdown, no backticks:
       setError(e.message || "Something went wrong. Try again!");
       setPage(PAGE.FORM);
     }
+  };
+
+  const handlePhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target.result.split(",")[1];
+      setPhotoBase64(base64);
+      setPhotoPreview(ev.target.result);
+      setPhotoDescription(""); // reset previous description
+    };
+    reader.readAsDataURL(file);
   };
 
   const stylePrompt = illustrationStyles.find(s => s.id === illustrationStyle)?.prompt || "";
@@ -291,6 +342,23 @@ Respond ONLY with valid JSON, no markdown, no backticks:
 
             <p style={sectionLabel}>Magical sidekick <span style={{ opacity: 0.5, textTransform: "none", fontWeight: 400 }}>(optional)</span></p>
             <input style={inputStyle} placeholder="e.g. a tiny dragon, a talking fox..." value={sidekick} onChange={e => setSidekick(e.target.value)} />
+
+            <p style={sectionLabel}>Hero photo <span style={{ opacity: 0.5, textTransform: "none", fontWeight: 400 }}>(optional — makes illustrations look like them!)</span></p>
+            <label style={{ width: "100%", display: "block", cursor: "pointer", boxSizing: "border-box" }}>
+              <div style={{ ...inputStyle, display: "flex", alignItems: "center", gap: 12, cursor: "pointer", padding: "12px 18px" }}>
+                <span style={{ fontSize: 20 }}>📸</span>
+                <span style={{ color: photoPreview ? "#fde68a" : "rgba(253,230,138,0.4)", fontSize: 14 }}>
+                  {photoPreview ? "Photo uploaded ✓ tap to change" : "Upload a photo of the child..."}
+                </span>
+              </div>
+              <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: "none" }} />
+            </label>
+            {photoPreview && (
+              <div style={{ marginTop: 10, position: "relative", display: "inline-block", width: "100%" }}>
+                <img src={photoPreview} alt="Uploaded" style={{ width: "100%", maxHeight: 160, objectFit: "cover", borderRadius: 12, border: "1.5px solid rgba(253,186,116,0.3)" }} />
+                <button onClick={() => { setPhotoBase64(""); setPhotoPreview(""); setPhotoDescription(""); }} style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", border: "none", borderRadius: 50, width: 28, height: 28, color: "white", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+              </div>
+            )}
 
             {error && <p style={{ color: "#fb7185", fontSize: 13, marginTop: 12, textAlign: "center" }}>{error}</p>}
 
