@@ -13,22 +13,14 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch(
-      "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0/text-to-image",
+      "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0",
       {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: {
-            width: 512,
-            height: 320,
-            num_inference_steps: 20,
-            guidance_scale: 7.5,
-          },
-        }),
+        body: JSON.stringify({ inputs: prompt }),
       }
     );
 
@@ -38,7 +30,7 @@ export default async function handler(req, res) {
     }
 
     const buffer = await response.arrayBuffer();
-    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "public, max-age=3600");
     return res.status(200).send(Buffer.from(buffer));
   } catch (error) {
