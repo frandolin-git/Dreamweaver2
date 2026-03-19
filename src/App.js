@@ -227,24 +227,10 @@ export default function App() {
     const moodLabel = moods.find((m) => m.id === mood)?.label || mood;
     const sidekickLine = sidekick.trim() ? ` Their magical sidekick is a ${sidekick}.` : "";
 
-    const prompt = `Write a warm, imaginative bedtime story for a child named ${childName}. 
-The story is set in a ${themeLabel} world and has a ${moodLabel} tone.${sidekickLine}
-The child is the hero of the story. Write exactly 5 paragraphs, age-appropriate (4-8 years), with a gentle, satisfying ending.
+    const prompt = `You are a children's bedtime story writer. Write a warm imaginative story for a child named ${childName} set in a ${themeLabel} world with a ${moodLabel} tone.${sidekickLine} The child is the hero. Write exactly 5 paragraphs, age-appropriate (4-8 years), with a gentle sleepy ending.
 
-Format your response EXACTLY like this:
-TITLE: [Your Title Here]
-PARAGRAPH: [paragraph 1 text]
-IMAGE: [a short vivid image description of the scene in this paragraph, suitable for illustration, max 20 words]
-PARAGRAPH: [paragraph 2 text]
-IMAGE: [image description]
-PARAGRAPH: [paragraph 3 text]
-IMAGE: [image description]
-PARAGRAPH: [paragraph 4 text]
-IMAGE: [image description]
-PARAGRAPH: [paragraph 5 text]
-IMAGE: [image description]
-
-Make the story vivid, fun, and full of wonder!`;
+Respond ONLY with a valid JSON object, no markdown, no backticks, no extra text. Use this exact structure:
+{"title":"story title here","paragraphs":[{"text":"paragraph 1 text","image":"short scene description for illustration, max 15 words"},{"text":"paragraph 2 text","image":"scene description"},{"text":"paragraph 3 text","image":"scene description"},{"text":"paragraph 4 text","image":"scene description"},{"text":"paragraph 5 text","image":"scene description"}]}`;
 
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -264,26 +250,28 @@ Make the story vivid, fun, and full of wonder!`;
       const data = await res.json();
       const text = data.content?.map((c) => c.text || "").join("") || "";
 
-      const titleMatch = text.match(/TITLE:\s*(.+)/);
-      const title = titleMatch ? titleMatch[1].trim() : `${childName}'s Magical Adventure`;
-
-      // Try structured parsing first
-      let paraMatches = [...text.matchAll(/PARAGRAPH:\s*([\s\S]+?)(?=\n\s*IMAGE:|\n\s*PARAGRAPH:|$)/g)].map(m => m[1].trim()).filter(Boolean);
-      let imageMatches = [...text.matchAll(/IMAGE:\s*([^\n]+)/g)].map(m => m[1].trim()).filter(Boolean);
-
-      // Fallback: if no PARAGRAPH tags found, split by double newlines
-      if (paraMatches.length === 0) {
-        const cleaned = text.replace(/TITLE:\s*.+\n?/, "").trim();
-        paraMatches = cleaned.split(/\n\n+/).map(p => p.replace(/^(PARAGRAPH:|IMAGE:)\s*/i, "").trim()).filter(p => p.length > 30);
-        imageMatches = [];
+      // Parse JSON response
+      let parsed;
+      try {
+        // Strip any accidental markdown fences
+        const clean = text.replace(/```json|```/g, "").trim();
+        parsed = JSON.parse(clean);
+      } catch (e) {
+        // Fallback: extract JSON object from text
+        const match = text.match(/\{[\s\S]*\}/);
+        if (match) {
+          parsed = JSON.parse(match[0]);
+        } else {
+          throw new Error("Could not parse story");
+        }
       }
 
-      // Always ensure every paragraph has an image prompt
-      const themeLabel2 = themes.find(t => t.id === theme)?.label || theme;
-      const finalImagePrompts = paraMatches.map((para, i) => {
-        if (imageMatches[i]) return imageMatches[i];
-        const firstSentence = para.match(/[^.!?]+[.!?]/)?.[0] || para.slice(0, 80);
-        return `child hero in ${themeLabel2}: ${firstSentence.trim()}`;
+      const title = parsed.title || `${childName}'s Magical Adventure`;
+      const paraMatches = (parsed.paragraphs || []).map(p => p.text).filter(Boolean);
+      const finalImagePrompts = (parsed.paragraphs || []).map((p, i) => {
+        if (p.image) return p.image;
+        const firstSentence = paraMatches[i]?.match(/[^.!?]+[.!?]/)?.[0] || paraMatches[i]?.slice(0, 80) || "";
+        return `child in ${themeLabel}: ${firstSentence.trim()}`;
       });
 
       setStoryTitle(title);
