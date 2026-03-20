@@ -45,38 +45,8 @@ const illustrationStyles = [
   { id: "dreamy", label: "✨ Dreamy", prompt: "magical dreamy children's book illustration, glowing soft light, ethereal, enchanted" },
 ];
 
-function IllustrationImage({ scenePrompt, characterPrompt, stylePrompt }) {
-  const [src, setSrc] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const fetchedRef = useRef(false);
-
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    // Scene takes priority — character is a brief anchor at the end
-    const fullPrompt = `${scenePrompt}, ${stylePrompt}, children's book art, no text. Character: ${characterPrompt}`;
-
-    fetch("/api/image", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: fullPrompt }),
-    })
-      .then(res => {
-        if (!res.ok) return res.text().then(t => { throw new Error(t); });
-        return res.blob();
-      })
-      .then(blob => {
-        setSrc(URL.createObjectURL(blob));
-        setLoading(false);
-      })
-      .catch(err => {
-        setError(err.message.slice(0, 80));
-        setLoading(false);
-      });
-  }, []);
-
+// Simple display component - receives pre-fetched image URLs
+function IllustrationImage({ src, loading, error }) {
   if (loading) {
     return (
       <div style={{ width: "100%", borderRadius: 14, marginBottom: 12, background: "rgba(255,255,255,0.04)", minHeight: 180, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(253,230,138,0.4)", fontSize: 13, fontStyle: "italic" }}>
@@ -84,7 +54,6 @@ function IllustrationImage({ scenePrompt, characterPrompt, stylePrompt }) {
       </div>
     );
   }
-
   if (error) {
     return (
       <div style={{ width: "100%", borderRadius: 14, marginBottom: 12, background: "rgba(255,0,0,0.05)", padding: "8px 12px", color: "#fb7185", fontSize: 11 }}>
@@ -92,7 +61,7 @@ function IllustrationImage({ scenePrompt, characterPrompt, stylePrompt }) {
       </div>
     );
   }
-
+  if (!src) return null;
   return (
     <img src={src} alt="Story illustration" style={{ width: "100%", display: "block", borderRadius: 14, marginBottom: 12 }} />
   );
@@ -113,6 +82,9 @@ export default function App() {
   const [storyTitle, setStoryTitle] = useState("");
   const [paragraphs, setParagraphs] = useState([]);
   const [scenePrompts, setScenePrompts] = useState([]);
+  const [imageSrcs, setImageSrcs] = useState([]); // pre-fetched image URLs
+  const [imageLoadingIndex, setImageLoadingIndex] = useState(-1);
+  const [imageErrors, setImageErrors] = useState([]);
   const [characterPrompt, setCharacterPrompt] = useState("");
   const [error, setError] = useState("");
   const [dots, setDots] = useState(1);
@@ -313,6 +285,46 @@ Respond ONLY with valid JSON, no markdown, no backticks:
       setCharacterPrompt(character);
       setPage(PAGE.STORY);
       setTimeout(() => storyRef.current?.scrollTo({ top: 0 }), 100);
+
+      // Fetch images sequentially — one at a time to avoid rate limits
+      if (isVercelEnv) {
+        const styleP = illustrationStyles.find(s => s.id === illustrationStyle)?.prompt || "";
+        const charP = clean(parsed.character) || "young child with bright curious eyes";
+        const fetchedSrcs = new Array(scenes.length).fill(null);
+        const fetchedErrors = new Array(scenes.length).fill("");
+        setImageSrcs([...fetchedSrcs]);
+        setImageErrors([...fetchedErrors]);
+
+        const fetchSequentially = async () => {
+          for (let i = 0; i < scenes.length; i++) {
+            if (!scenes[i]) continue;
+            setImageLoadingIndex(i);
+            const fullPrompt = `${scenes[i]}, ${styleP}, children's book art, no text. Character: ${charP}`;
+            try {
+              const imgRes = await fetch("/api/image", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: fullPrompt }),
+              });
+              if (!imgRes.ok) {
+                const t = await imgRes.text();
+                fetchedErrors[i] = t.slice(0, 80);
+              } else {
+                const blob = await imgRes.blob();
+                fetchedSrcs[i] = URL.createObjectURL(blob);
+              }
+            } catch (e) {
+              fetchedErrors[i] = e.message.slice(0, 80);
+            }
+            setImageSrcs([...fetchedSrcs]);
+            setImageErrors([...fetchedErrors]);
+            // Wait 7 seconds between requests to stay under rate limit
+            if (i < scenes.length - 1) await new Promise(r => setTimeout(r, 7000));
+          }
+          setImageLoadingIndex(-1);
+        };
+        fetchSequentially();
+      }
     } catch (e) {
       setError(e.message || "Something went wrong. Try again!");
       setPage(PAGE.FORM);
@@ -444,9 +456,9 @@ Respond ONLY with valid JSON, no markdown, no backticks:
                 <div key={i} style={{ marginBottom: 28 }}>
                   {isVercelEnv && scenePrompts[i] && (
                     <IllustrationImage
-                      scenePrompt={scenePrompts[i]}
-                      characterPrompt={characterPrompt}
-                      stylePrompt={stylePrompt}
+                      src={imageSrcs[i]}
+                      loading={imageLoadingIndex === i}
+                      error={imageErrors[i]}
                     />
                   )}
                   <p style={{ fontFamily: "'Lora', serif", fontSize: 16, lineHeight: 1.85, color: "rgba(253,230,138,0.85)", margin: 0 }}>{para}</p>
